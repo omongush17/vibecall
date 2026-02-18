@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from "react-dom/client";
 import Peer from 'peerjs';
-import { Video, VideoOff, Mic, MicOff, Send, PhoneOff, Copy, Share2 } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
+
+const { Video, VideoOff, Mic, MicOff, Send, PhoneOff, Copy, Share2 } = LucideIcons;
 
 const App = () => {
   const [myId, setMyId] = useState('');
@@ -11,7 +13,7 @@ const App = () => {
   const [stream, setStream] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
-  const [isConnected, setIsConnected] = useState(false);
+  const [isStarted, setIsStarted] = useState(false); // Новое: открывает интерфейс сразу
   
   const myVideo = useRef(null);
   const remoteVideo = useRef(null);
@@ -19,10 +21,7 @@ const App = () => {
   useEffect(() => {
     const newPeer = new Peer({
       config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-        ],
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }],
       },
     });
     
@@ -30,43 +29,49 @@ const App = () => {
       setMyId(id);
       const urlParams = new URLSearchParams(window.location.search);
       const roomFromUrl = urlParams.get('room');
-      if (roomFromUrl) setFriendId(roomFromUrl);
+      if (roomFromUrl) {
+        setFriendId(roomFromUrl);
+        // Если зашли по ссылке с ID, открываем интерфейс через секунду
+        setTimeout(() => setIsStarted(true), 1000);
+      }
     });
 
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then((s) => {
-          setStream(s);
-          if (myVideo.current) myVideo.current.srcObject = s;
-          newPeer.on('call', (call) => {
-            setIsConnected(true);
-            call.answer(s);
-            call.on('stream', (rs) => {
-              if (remoteVideo.current) remoteVideo.current.srcObject = rs;
-            });
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((s) => {
+        setStream(s);
+        if (myVideo.current) myVideo.current.srcObject = s;
+        newPeer.on('call', (call) => {
+          setIsStarted(true);
+          call.answer(s);
+          call.on('stream', (rs) => {
+            if (remoteVideo.current) remoteVideo.current.srcObject = rs;
           });
-        })
-        .catch((err) => console.error("Media error:", err));
-    }
+        });
+      })
+      .catch((err) => {
+        console.warn("Камера не найдена, работаем без неё");
+        setStream(new MediaStream());
+      });
 
     newPeer.on('connection', (c) => {
       setConn(c);
+      setIsStarted(true);
       c.on('data', (data) => setMessages((prev) => [...prev, { side: 'partner', text: data }]));
     });
 
     setPeer(newPeer);
-    return () => {
-      if (newPeer) newPeer.destroy();
-    };
+    return () => newPeer && newPeer.destroy();
   }, []);
 
   const startConnect = () => {
-    if (!friendId || !peer || !stream) return;
-    setIsConnected(true);
+    if (!friendId || !peer) return;
+    setIsStarted(true); // Сразу убираем заставку
     const call = peer.call(friendId, stream);
-    call.on('stream', (rs) => {
-      if (remoteVideo.current) remoteVideo.current.srcObject = rs;
-    });
+    if (call) {
+      call.on('stream', (rs) => {
+        if (remoteVideo.current) remoteVideo.current.srcObject = rs;
+      });
+    }
     const connection = peer.connect(friendId);
     setConn(connection);
     connection.on('data', (data) => setMessages((prev) => [...prev, { side: 'partner', text: data }]));
@@ -75,7 +80,8 @@ const App = () => {
   const shareLink = () => {
     const link = `${window.location.origin}${window.location.pathname}?room=${myId}`;
     navigator.clipboard.writeText(link);
-    alert("Ссылка скопирована!");
+    alert("Ссылка скопирована! Отправь её другу.");
+    setIsStarted(true); // Убираем заставку после копирования
   };
 
   const sendMsg = () => {
@@ -90,14 +96,14 @@ const App = () => {
     <div className="h-screen w-full bg-[#050508] text-slate-200 overflow-hidden relative font-sans">
       <video ref={remoteVideo} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover opacity-70" />
       
-      {!isConnected && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-lg z-10 p-6">
-          <div className="max-w-xs pointer-events-auto text-center">
-            <h1 className="text-3xl font-thin tracking-[0.2em] mb-8 text-indigo-400">VIBE ROOM</h1>
-            <button onClick={shareLink} className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 p-4 rounded-2xl transition-all mb-4">
-              <Share2 size={20} /> Скопировать ссылку
+      {!isStarted && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/95 backdrop-blur-xl z-[100] p-6 text-center">
+          <div className="max-w-xs animate-in fade-in zoom-in duration-500">
+            <h1 className="text-4xl font-thin tracking-[0.3em] mb-12 text-indigo-400">VIBE ROOM</h1>
+            <button onClick={shareLink} className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 p-5 rounded-3xl transition-all mb-4 active:scale-95">
+              <Share2 size={24} /> Создать комнату
             </button>
-            <p className="text-[10px] opacity-30 tracking-widest uppercase">Waiting for partner...</p>
+            <p className="text-[10px] opacity-30 tracking-[0.2em] uppercase">Press to generate your ID</p>
           </div>
         </div>
       )}
@@ -107,7 +113,7 @@ const App = () => {
       </div>
 
       <div className="absolute inset-0 p-6 flex flex-col justify-end pointer-events-none">
-        <div className="w-full max-w-sm pointer-events-auto flex flex-col gap-2 mb-24 max-h-[40vh] overflow-y-auto pr-2">
+        <div className="w-full max-w-sm pointer-events-auto flex flex-col gap-2 mb-24 max-h-[40vh] overflow-y-auto">
           {messages.map((m, i) => (
             <div key={i} className={`p-3 rounded-2xl text-sm backdrop-blur-xl border ${m.side === 'me' ? 'self-end bg-indigo-500/20 border-indigo-500/30' : 'self-start bg-white/5 border-white/10'}`}>
               {m.text}
@@ -116,17 +122,15 @@ const App = () => {
         </div>
 
         <div className="flex flex-col items-center gap-4 pointer-events-auto">
-          {!isConnected && (
-            <div className="flex bg-white/5 backdrop-blur-3xl p-1.5 rounded-2xl border border-white/10 shadow-2xl">
+          <div className="flex bg-white/5 backdrop-blur-3xl p-1.5 rounded-2xl border border-white/10 shadow-2xl">
               <input 
-                placeholder="ID..." 
-                className="bg-transparent px-4 py-2 outline-none w-32 text-sm text-white" 
+                placeholder="Partner ID..." 
+                className="bg-transparent px-4 py-2 outline-none w-36 text-sm text-white" 
                 value={friendId} 
                 onChange={(e) => setFriendId(e.target.value)} 
               />
-              <button onClick={startConnect} className="bg-indigo-600 px-5 py-2 rounded-xl text-[10px] font-black uppercase">Connect</button>
-            </div>
-          )}
+              <button onClick={startConnect} className="bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-colors">Connect</button>
+          </div>
 
           <div className="flex items-center gap-3 bg-black/60 backdrop-blur-3xl p-4 rounded-[2.5rem] border border-white/10 shadow-2xl">
              <button className="p-3 bg-white/5 hover:bg-white/10 rounded-full transition-all"><Mic size={20} /></button>
@@ -134,7 +138,7 @@ const App = () => {
              <div className="w-48 sm:w-64 bg-white/5 rounded-2xl px-4 flex items-center border border-white/5">
                 <input 
                   className="bg-transparent flex-1 py-3 text-xs outline-none text-white" 
-                  placeholder="Message..." 
+                  placeholder="Type a message..." 
                   value={inputText} 
                   onChange={(e) => setInputText(e.target.value)} 
                   onKeyDown={(e) => e.key === 'Enter' && sendMsg()} 
