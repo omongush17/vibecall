@@ -14,98 +14,90 @@ const App = () => {
   const [inputText, setInputText] = useState('');
   const [isStarted, setIsStarted] = useState(false);
   
-  // Используем Ref для стрима, чтобы он был доступен везде мгновенно
   const streamRef = useRef(null);
   const myVideo = useRef(null);
   const remoteVideo = useRef(null);
 
   useEffect(() => {
-    // 1. Получаем доступ к камере сразу при загрузке
-    const initMedia = async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomFromUrl = urlParams.get('room');
+
+    // Если мы гость — СРАЗУ убираем заставку, не дожидаясь ничего
+    if (roomFromUrl) {
+      setIsStarted(true);
+      setFriendId(roomFromUrl);
+    }
+
+    const initApp = async () => {
+      // Запускаем камеру
       try {
         const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         streamRef.current = s;
         if (myVideo.current) myVideo.current.srcObject = s;
+        console.log("Камера готова");
       } catch (err) {
-        console.warn("Камера не найдена, создаем пустой поток", err);
+        console.warn("Нет доступа к камере, работаем в режиме приема");
         streamRef.current = new MediaStream();
       }
-      
-      // 2. После того как камера (или пустой поток) готова, проверяем ссылку
-      const urlParams = new URLSearchParams(window.location.search);
-      const roomFromUrl = urlParams.get('room');
+
+      // Если это гость, инициализируем его автоматически
       if (roomFromUrl) {
         const guestId = 'guest-' + Math.random().toString(36).substring(7);
         handleInitPeer(guestId, roomFromUrl);
       }
     };
 
-    initMedia();
-
-    return () => {
-      if (peer) peer.destroy();
-    };
+    initApp();
   }, []);
 
   const handleInitPeer = (idToUse, autoCallId = null) => {
     const finalId = idToUse || myId;
-    if (!finalId) return;
+    if (!finalId) return alert("Введите имя комнаты");
 
+    console.log("Регистрация ID:", finalId);
     const newPeer = new Peer(finalId, {
-      config: { 
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ] 
-      }
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] }
     });
 
     newPeer.on('open', (id) => {
-      console.log('My ID is: ' + id);
       setMyId(id);
       setIsStarted(true);
+      console.log("Вы в сети под ID:", id);
+      
       if (autoCallId) {
-        setFriendId(autoCallId);
-        // Важно: небольшая задержка, чтобы сервер PeerJS успел обновить таблицы
+        console.log("Авто-звонок к:", autoCallId);
         setTimeout(() => connectToPartner(newPeer, autoCallId), 1500);
       }
     });
 
-    // Обработка входящего звонка (для Хоста)
     newPeer.on('call', (call) => {
-      console.log('Incoming call...');
-      setIsStarted(true);
+      console.log("Входящий звонок...");
       call.answer(streamRef.current);
       call.on('stream', (rs) => {
         if (remoteVideo.current) remoteVideo.current.srcObject = rs;
       });
     });
 
-    // Обработка входящего чат-соединения
     newPeer.on('connection', (c) => {
+      console.log("Чат подключен");
       setConn(c);
-      setIsStarted(true);
       c.on('data', (data) => setMessages(prev => [...prev, { side: 'partner', text: data }]));
     });
 
-    newPeer.on('error', (err) => {
-      console.error('PeerJS Error:', err.type);
-      if (err.type === 'unavailable-id') alert("Этот ID уже занят!");
-      if (err.type === 'peer-allowed-error') alert("Ошибка доступа к сети");
-    });
-
+    newPeer.on('error', (err) => console.error("PeerJS Error:", err));
     setPeer(newPeer);
   };
 
   const connectToPartner = (activePeer, targetId) => {
-    console.log('Connecting to:', targetId);
-    // Звоним
+    if (!activePeer || !targetId) return;
+    
+    // Видео звонок
     const call = activePeer.call(targetId, streamRef.current);
     call?.on('stream', (rs) => {
       if (remoteVideo.current) remoteVideo.current.srcObject = rs;
     });
 
-    // Соединяемся для чата
+    // Текстовый чат
     const connection = activePeer.connect(targetId);
     connection.on('open', () => {
       setConn(connection);
@@ -131,9 +123,10 @@ const App = () => {
     <div className="h-screen w-full bg-[#050508] text-slate-200 overflow-hidden relative font-sans">
       <video ref={remoteVideo} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover opacity-70" />
       
+      {/* ЗАСТАВКА */}
       {!isStarted && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-[100] p-6 text-center">
-          <div className="max-w-xs animate-in fade-in duration-700">
+          <div className="max-w-xs">
             <h1 className="text-4xl font-thin tracking-[0.3em] mb-12 text-indigo-400">VIBE ROOM</h1>
             <div className="flex flex-col gap-4 bg-white/5 p-6 rounded-[2rem] border border-white/10 shadow-2xl">
               <input 
@@ -142,7 +135,7 @@ const App = () => {
                 value={myId} 
                 onChange={(e) => setMyId(e.target.value.toLowerCase().replace(/\s+/g, '-'))} 
               />
-              <button onClick={() => handleInitPeer()} className="w-full flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-500 p-4 rounded-2xl font-bold transition-all active:scale-95 text-white">
+              <button onClick={() => handleInitPeer()} className="w-full flex items-center justify-center gap-3 bg-indigo-600 p-4 rounded-2xl font-bold text-white shadow-lg active:scale-95 transition-all">
                 <UserCheck size={20} /> СОЗДАТЬ
               </button>
             </div>
@@ -150,22 +143,23 @@ const App = () => {
         </div>
       )}
 
-      {isStarted && (
-        <div className="absolute top-6 left-6 z-50 flex flex-col gap-2 pointer-events-auto">
-          <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
-            <span className="text-[10px] text-indigo-400 uppercase font-black tracking-widest block">Room ID</span>
-            <span className="text-sm font-mono text-white/90">{myId}</span>
-          </div>
-          <button onClick={shareLink} className="flex items-center gap-2 bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl border border-white/10 text-[10px] transition-all text-white">
-            <Share2 size={14} /> COPY LINK
-          </button>
+      {/* ПАНЕЛЬ С ID И ССЫЛКОЙ */}
+      <div className="absolute top-6 left-6 z-50 flex flex-col gap-2 pointer-events-auto">
+        <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
+          <span className="text-[10px] text-indigo-400 uppercase font-black tracking-widest block">Room ID</span>
+          <span className="text-sm font-mono text-white/90">{myId || '---'}</span>
         </div>
-      )}
+        <button onClick={shareLink} className="flex items-center gap-2 bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl border border-white/10 text-[10px] text-white">
+          <Share2 size={14} /> COPY LINK
+        </button>
+      </div>
 
+      {/* ВАШЕ ВИДЕО */}
       <div className="absolute top-6 right-6 w-40 h-28 rounded-2xl overflow-hidden border border-white/10 shadow-2xl z-50 bg-black">
         <video ref={myVideo} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
       </div>
 
+      {/* ЧАТ И КНОПКИ */}
       <div className="absolute inset-0 p-6 flex flex-col justify-end pointer-events-none">
         <div className="w-full max-w-sm pointer-events-auto flex flex-col gap-2 mb-24 max-h-[40vh] overflow-y-auto">
           {messages.map((m, i) => (
@@ -177,21 +171,5 @@ const App = () => {
 
         <div className="flex flex-col items-center gap-4 pointer-events-auto">
           <div className="flex items-center gap-3 bg-black/60 backdrop-blur-3xl p-4 rounded-[2.5rem] border border-white/10 shadow-2xl">
-             <button className="p-3 bg-white/5 rounded-full"><Mic size={20} /></button>
-             <button className="p-3 bg-white/5 rounded-full"><Video size={20} /></button>
-             <div className="w-48 sm:w-64 bg-white/5 rounded-2xl px-4 flex items-center border border-white/5">
-                <input className="bg-transparent flex-1 py-3 text-xs outline-none text-white" placeholder="Message..." value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMsg()} />
-             </div>
-             <button onClick={() => window.location.reload()} className="p-3 bg-red-500/20 text-red-500 rounded-full"><PhoneOff size={20} /></button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const container = document.getElementById("root");
-if (container) {
-  const root = createRoot(container);
-  root.render(<App />);
-}
+             <button className="p-3 bg-white/5 rounded-full text-white"><Mic size={20} /></button>
+             <button className="p-
