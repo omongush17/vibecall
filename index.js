@@ -1,9 +1,8 @@
-mport React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from "react-dom/client";
 import Peer from 'peerjs';
 import * as LucideIcons from 'lucide-react';
 
-// Вытаскиваем иконки отдельно, чтобы не было ошибок импорта
 const { Video, VideoOff, Mic, MicOff, Send, PhoneOff, Copy, Share2 } = LucideIcons;
 
 const App = () => {
@@ -33,13 +32,12 @@ const App = () => {
       setMyId(id);
       const urlParams = new URLSearchParams(window.location.search);
       const roomFromUrl = urlParams.get('room');
-      if (roomFromUrl) {
-        setFriendId(roomFromUrl);
-      }
+      if (roomFromUrl) setFriendId(roomFromUrl);
     });
 
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(s => {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(s => {
           setStream(s);
           if (myVideo.current) myVideo.current.srcObject = s;
           newPeer.on('call', call => {
@@ -49,7 +47,8 @@ const App = () => {
               if (remoteVideo.current) remoteVideo.current.srcObject = rs;
             });
           });
-        }).catch(err => console.error("Media error:", err));
+        })
+        .catch(err => console.error("Media error:", err));
     }
 
     newPeer.on('connection', c => {
@@ -88,25 +87,22 @@ const App = () => {
   };
 
   return (
-    <div className="h-screen w-full bg-[#050508] text-slate-200 overflow-hidden relative font-sans">
+    <div className="h-screen w-full bg-[#050508] text-slate-200 overflow-hidden relative">
       <video ref={remoteVideo} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover opacity-70" />
-      
       {!isConnected && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-lg z-10 text-center p-6">
-          <div className="max-w-xs pointer-events-auto">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-lg z-10 p-6">
+          <div className="max-w-xs pointer-events-auto text-center">
             <h1 className="text-3xl font-thin tracking-[0.2em] mb-8 text-indigo-400">VIBE ROOM</h1>
             <button onClick={shareLink} className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 p-4 rounded-2xl transition-all mb-4">
               <Share2 size={20} /> Скопировать ссылку
             </button>
-            <p className="text-[10px] opacity-30 tracking-widest uppercase">Waiting for your partner...</p>
+            <p className="text-[10px] opacity-30 tracking-widest uppercase">Waiting for partner...</p>
           </div>
         </div>
       )}
-
       <div className="absolute top-6 right-6 w-40 h-28 rounded-2xl overflow-hidden border border-white/10 shadow-2xl z-50 bg-black">
         <video ref={myVideo} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
       </div>
-
       <div className="absolute inset-0 p-6 flex flex-col justify-end pointer-events-none">
         <div className="w-full max-w-sm pointer-events-auto flex flex-col gap-2 mb-24 max-h-[40vh] overflow-y-auto">
           {messages.map((m, i) => (
@@ -115,15 +111,13 @@ const App = () => {
             </div>
           ))}
         </div>
-
         <div className="flex flex-col items-center gap-4 pointer-events-auto">
           {!isConnected && (
             <div className="flex bg-white/5 backdrop-blur-3xl p-1.5 rounded-2xl border border-white/10">
               <input placeholder="ID..." className="bg-transparent px-4 py-2 outline-none w-32 text-sm text-white" value={friendId} onChange={e => setFriendId(e.target.value)} />
-              <button id="connect-btn" onClick={startConnect} className="bg-indigo-600 px-5 py-2 rounded-xl text-[10px] font-black">CONNECT</button>
+              <button onClick={startConnect} className="bg-indigo-600 px-5 py-2 rounded-xl text-[10px] font-black">CONNECT</button>
             </div>
           )}
-
           <div className="flex items-center gap-3 bg-black/60 backdrop-blur-3xl p-4 rounded-[2.5rem] border border-white/10">
              <button className="p-3 bg-white/5 rounded-full"><Mic size={20} /></button>
              <button className="p-3 bg-white/5 rounded-full"><Video size={20} /></button>
@@ -140,7 +134,6 @@ const App = () => {
   );
 };
 
-// Самый важный момент: запуск приложения в конце файла
 const container = document.getElementById("root");
 const root = createRoot(container);
 root.render(<App />);
