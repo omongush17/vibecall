@@ -10,32 +10,41 @@ const App = () => {
   const [friendId, setFriendId] = useState('');
   const [peer, setPeer] = useState(null);
   const [conn, setConn] = useState(null);
-  const [stream, setStream] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isStarted, setIsStarted] = useState(false);
   
+  // Используем Ref для стрима, чтобы он был доступен везде мгновенно
+  const streamRef = useRef(null);
   const myVideo = useRef(null);
   const remoteVideo = useRef(null);
 
   useEffect(() => {
-    // 1. Сразу запрашиваем медиа
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then((s) => {
-        setStream(s);
+    // 1. Получаем доступ к камере сразу при загрузке
+    const initMedia = async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        streamRef.current = s;
         if (myVideo.current) myVideo.current.srcObject = s;
-      })
-      .catch(() => setStream(new MediaStream()));
+      } catch (err) {
+        console.warn("Камера не найдена, создаем пустой поток", err);
+        streamRef.current = new MediaStream();
+      }
+      
+      // 2. После того как камера (или пустой поток) готова, проверяем ссылку
+      const urlParams = new URLSearchParams(window.location.search);
+      const roomFromUrl = urlParams.get('room');
+      if (roomFromUrl) {
+        const guestId = 'guest-' + Math.random().toString(36).substring(7);
+        handleInitPeer(guestId, roomFromUrl);
+      }
+    };
 
-    // 2. Мгновенная проверка ссылки
-    const urlParams = new URLSearchParams(window.location.search);
-    const roomFromUrl = urlParams.get('room');
-    
-    if (roomFromUrl) {
-      // Если это гость, заходим молча под случайным ID
-      const guestId = 'guest-' + Math.random().toString(36).substring(7);
-      handleInitPeer(guestId, roomFromUrl);
-    }
+    initMedia();
+
+    return () => {
+      if (peer) peer.destroy();
+    };
   }, []);
 
   const handleInitPeer = (idToUse, autoCallId = null) => {
@@ -43,50 +52,71 @@ const App = () => {
     if (!finalId) return;
 
     const newPeer = new Peer(finalId, {
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
-    });
-
-    newPeer.on('open', (id) => {
-      setMyId(id);
-      setIsStarted(true); // Убираем заставку
-      if (autoCallId) {
-        setFriendId(autoCallId);
-        // Небольшая пауза, чтобы PeerJS успел зарегиться в сети
-        setTimeout(() => connectToPartner(newPeer, autoCallId), 1000);
+      config: { 
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ] 
       }
     });
 
-    newPeer.on('call', (call) => {
+    newPeer.on('open', (id) => {
+      console.log('My ID is: ' + id);
+      setMyId(id);
       setIsStarted(true);
-      call.answer(stream);
+      if (autoCallId) {
+        setFriendId(autoCallId);
+        // Важно: небольшая задержка, чтобы сервер PeerJS успел обновить таблицы
+        setTimeout(() => connectToPartner(newPeer, autoCallId), 1500);
+      }
+    });
+
+    // Обработка входящего звонка (для Хоста)
+    newPeer.on('call', (call) => {
+      console.log('Incoming call...');
+      setIsStarted(true);
+      call.answer(streamRef.current);
       call.on('stream', (rs) => {
         if (remoteVideo.current) remoteVideo.current.srcObject = rs;
       });
     });
 
+    // Обработка входящего чат-соединения
     newPeer.on('connection', (c) => {
       setConn(c);
       setIsStarted(true);
       c.on('data', (data) => setMessages(prev => [...prev, { side: 'partner', text: data }]));
     });
 
+    newPeer.on('error', (err) => {
+      console.error('PeerJS Error:', err.type);
+      if (err.type === 'unavailable-id') alert("Этот ID уже занят!");
+      if (err.type === 'peer-allowed-error') alert("Ошибка доступа к сети");
+    });
+
     setPeer(newPeer);
   };
 
   const connectToPartner = (activePeer, targetId) => {
-    const call = activePeer.call(targetId, stream);
+    console.log('Connecting to:', targetId);
+    // Звоним
+    const call = activePeer.call(targetId, streamRef.current);
     call?.on('stream', (rs) => {
       if (remoteVideo.current) remoteVideo.current.srcObject = rs;
     });
+
+    // Соединяемся для чата
     const connection = activePeer.connect(targetId);
-    setConn(connection);
-    connection.on('data', (data) => setMessages(prev => [...prev, { side: 'partner', text: data }]));
+    connection.on('open', () => {
+      setConn(connection);
+      connection.on('data', (data) => setMessages(prev => [...prev, { side: 'partner', text: data }]));
+    });
   };
 
   const shareLink = () => {
     const link = `${window.location.origin}${window.location.pathname}?room=${myId}`;
     navigator.clipboard.writeText(link);
-    alert("Ссылка скопирована! Отправь её другу.");
+    alert("Ссылка скопирована!");
   };
 
   const sendMsg = () => {
@@ -101,19 +131,18 @@ const App = () => {
     <div className="h-screen w-full bg-[#050508] text-slate-200 overflow-hidden relative font-sans">
       <video ref={remoteVideo} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover opacity-70" />
       
-      {/* Заставка показывается ТОЛЬКО если мы не гость */}
       {!isStarted && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-[100] p-6 text-center">
-          <div className="max-w-xs">
+          <div className="max-w-xs animate-in fade-in duration-700">
             <h1 className="text-4xl font-thin tracking-[0.3em] mb-12 text-indigo-400">VIBE ROOM</h1>
-            <div className="flex flex-col gap-4 bg-white/5 p-6 rounded-[2rem] border border-white/10">
+            <div className="flex flex-col gap-4 bg-white/5 p-6 rounded-[2rem] border border-white/10 shadow-2xl">
               <input 
                 placeholder="Имя комнаты..." 
                 className="bg-transparent border-b border-white/20 py-2 outline-none text-center text-lg text-white" 
                 value={myId} 
-                onChange={(e) => setMyId(e.target.value.replace(/\s+/g, '-'))} 
+                onChange={(e) => setMyId(e.target.value.toLowerCase().replace(/\s+/g, '-'))} 
               />
-              <button onClick={() => handleInitPeer()} className="w-full flex items-center justify-center gap-3 bg-indigo-600 p-4 rounded-2xl font-bold">
+              <button onClick={() => handleInitPeer()} className="w-full flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-500 p-4 rounded-2xl font-bold transition-all active:scale-95 text-white">
                 <UserCheck size={20} /> СОЗДАТЬ
               </button>
             </div>
@@ -121,7 +150,6 @@ const App = () => {
         </div>
       )}
 
-      {/* Верхняя панель управления */}
       {isStarted && (
         <div className="absolute top-6 left-6 z-50 flex flex-col gap-2 pointer-events-auto">
           <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
