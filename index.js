@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from 'react';
+import { createRoot } from "react-dom/client"; // Добавили эту строку
+import Peer from 'peerjs';
+import { Video, VideoOff, Mic, MicOff, Send, PhoneOff, Copy, Share2 } from 'lucide-react';
+
+// Инициализация (тот самый код запуска)
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);import React, { useState, useEffect, useRef } from "react";
 import Peer from "peerjs";
 import {
   Video,
@@ -205,3 +212,4 @@ const App = () => {
 
 
 export default App;
+
